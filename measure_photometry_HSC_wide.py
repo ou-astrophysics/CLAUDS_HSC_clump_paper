@@ -11,7 +11,6 @@ import sys
 import time
 sys.path.append('../shared/')
 import GalaxyMeasurements
-import HSCobjids_to_exclude
 from itertools import repeat
 from operator import itemgetter
 import multiprocessing
@@ -306,6 +305,7 @@ def main():
     print('Writing results...')
     output_file = 'phot_Zoobot-U+GRIZY_ensemble_HSC_sigma_1.0.gzip'
     df_results.to_parquet(PHOTOMETRY_FILE_PATH + output_file, compression='gzip')
+    # [END FINISHING-UP]
 # [END Main]
 
 
