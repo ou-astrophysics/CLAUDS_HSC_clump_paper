@@ -308,7 +308,7 @@ def main():
         .assign(y_centroid_normed = lambda _df: _df.y_centroid/_df.px_fits_y)
         .assign(is_in_padding = False)
         .assign(is_in_padding = lambda _df: _df.is_in_padding.where(
-            (_df.x_peak_normed > (_df.px_x1_normed+padding)) & (_df.x_peak_normed < (_df.px_x2_normed-padding)) & (_df.y_peak_normed > (_df.px_y1_normed+padding)) & (_df.y_peak_normed < (_df.px_y2_normed-padding))
+            (_df.x_centroid_normed > (_df.px_x1_normed+padding)) & (_df.x_centroid_normed < (_df.px_x2_normed-padding)) & (_df.y_centroid_normed > (_df.px_y1_normed+padding)) & (_df.y_centroid_normed < (_df.px_y2_normed-padding))
         , True))
         .query('is_in_padding == False')
         .assign(x_peak_normed = lambda _df: _df.x_peak_normed.astype(float))
@@ -318,7 +318,7 @@ def main():
     )
     
     # removing duplicates
-    duplicates = df_peaks.groupby(['HSCobjid', 'band', 'x_peak', 'y_peak']).filter(lambda x: len(x) > 1)  #  HAVING COUNT(*) > 1
+    duplicates = df_peaks.groupby(['HSCobjid', 'band', 'x_centroid_normed', 'y_centroid_normed']).filter(lambda x: len(x) > 1)  #  HAVING COUNT(*) > 1
     duplicates['duplicate_id'] = duplicates.groupby(['HSCobjid', 'band'])['scores'].rank(ascending=False, method='max').astype(int)
     peaks_to_remove = duplicates[duplicates['duplicate_id']!=1]['peak_detection_id']
     df_peaks = df_peaks[~df_peaks['peak_detection_id'].isin(peaks_to_remove)][cols]
@@ -327,7 +327,7 @@ def main():
     # [START FINISHING-UP]
     print('Writing results...')
     output_file = 'peaks_Zoobot-U+GRIZY_ensemble_CLAUDS+HSC_bands_sigma_{}_cleaned.gzip'.format(sigma)
-    df_results.to_parquet(PREDICTIONS_FILE_PATH + output_file, compression='gzip')
+    df_peaks.to_parquet(PREDICTIONS_FILE_PATH + output_file, compression='gzip')
     # [END FINISHING-UP]
 # [END Main]
 
