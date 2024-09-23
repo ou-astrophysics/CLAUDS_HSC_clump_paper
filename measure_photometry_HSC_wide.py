@@ -33,12 +33,9 @@ DATA_PATH = './data/'
 PREDICTIONS_FILE_PATH = './predictions/'
 PHOTOMETRY_FILE_PATH = './photometry/'
 
-DATA_BACKUP_PATH = os.environ['HOME'] + '/Data_Backup/'
-DATA_BACKUP_PATH2 = '/Volumes/Data_Astro/Data/'
-
-IMAGE_DATA_PATH = DATA_BACKUP_PATH + 'HSC_CLAUDS_Zoobot_FRCNN_wide/'
-FITS_FILE_PATH = IMAGE_DATA_PATH + 'HSC_fits/'
-PSF_FILE_PATH = DATA_BACKUP_PATH2 + 'HSC_CLAUDS_Zoobot_FRCNN_wide/HSC_psf/'
+IMAGE_DATA_PATH = './pngs/'
+FITS_FILE_PATH = './fits/'
+PSF_FILE_PATH = './psf/'
 
 HSC_ARCSEC_PER_PIXEL = 0.168
 SCORE_THRESHOLD = 0.0
@@ -167,7 +164,7 @@ def run_photometry(df_phot, bands, fwhm_multiplier_annulus_min, fwhm_multiplier_
                 else:
                     background_rms = np.sqrt(var_image)
                     effective_gain = 3.0
-                error = calc_total_error(data=science_image, bkg_error=background_rms, effective_gain=0.0)
+                error = calc_total_error(data=science_image, bkg_error=background_rms, effective_gain=effective_gain)
     
                 # convolve fits with new PSF
                 # if reference_band != band:

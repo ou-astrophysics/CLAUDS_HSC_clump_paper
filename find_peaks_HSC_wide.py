@@ -34,11 +34,9 @@ DATA_PATH = './data/'
 PREDICTIONS_FILE_PATH = './predictions/'
 PHOTOMETRY_FILE_PATH = './photometry/'
 
-DATA_BACKUP_PATH = os.environ['HOME'] + '/Data_Backup/'
-DATA_BACKUP_PATH2 = '/Volumes/Data_Astro/Data/'
-
-IMAGE_DATA_PATH = DATA_BACKUP_PATH + 'HSC_CLAUDS_Zoobot_FRCNN_wide/'
-FITS_FILE_PATH = IMAGE_DATA_PATH + 'HSC_fits/'
+IMAGE_DATA_PATH = './pngs/'
+FITS_FILE_PATH = './fits/'
+PSF_FILE_PATH = './psf/'
 
 HSC_ARCSEC_PER_PIXEL = 0.168
 SCORE_THRESHOLD = 0.0
