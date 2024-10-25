@@ -176,7 +176,7 @@ def peak_finder(df, bands, sigma):
                             clump_centre_y = (data['px_y1_normed']*x + data['px_y2_normed']*x) / 2.0
                             if not galaxy_seg_mask[(int(clump_centre_y), int(clump_centre_x))]:
                                 # Re-project coords
-                                skycoord_clump_centre = ff_wcs[band].wcs_pix2world(clump_centre_x, clump_centre_y, 1)
+                                skycoord_clump_centre = ff_wcs[band].wcs_pix2world(clump_centre_x, clump_centre_y, 0)
                                 results.append([
                                     objid,
                                     band,

@@ -23,7 +23,7 @@ from astropy.convolution import convolve_fft
 
 import photutils
 from photutils.utils import calc_total_error
-from photutils.psf import create_matching_kernel, SplitCosineBellWindow
+from photutils.psf.matching import create_matching_kernel, SplitCosineBellWindow
 from photutils.segmentation import make_2dgaussian_kernel, detect_sources, deblend_sources, SourceCatalog, SegmentationImage
 # [END libraries]
 
