@@ -18,6 +18,7 @@ from astropy.stats import gaussian_fwhm_to_sigma, sigma_clipped_stats, SigmaClip
 from astropy.convolution import convolve, convolve_fft, Box2DKernel, Gaussian2DKernel, Tophat2DKernel
 from astropy.visualization import SqrtStretch
 from astropy.visualization.mpl_normalize import ImageNormalize
+import astropy.units as u
 
 import photutils
 from photutils.background import Background2D, MedianBackground
@@ -478,8 +479,45 @@ def get_aperture_correction(psf, aper, func='gauss'):
 
 def calcFluxScale(zp0,zp1):
     """
-    -2.5*log(f1) + zp1 = -2.5*log(f0) + zp0
-    f1/f0 = 10**((zp1 - zp0) / 2.5)
+      Rescales fluxes to match fluxes from different zeropoint.
+        -2.5*log(f1) + zp1 = -2.5*log(f0) + zp0
+        f1/f0 = 10**((zp1 - zp0) / 2.5)
+      Args:
+        both zeropoint, zp0 and zp1
+      Returns:
+        fscale: scale factor for flux multiplication, float
     """
     fscale = 10**((zp1 - zp0) / 2.5)
     return fscale
+
+
+def fluxes2mags(flux, fluxerr, zeropoint):
+    """
+      Converts fluxes and flux errors to ABmags for a given zeropoint.
+      Args:
+        flux, flux error and zeropoint
+      Returns:
+        ABmag and ABmag error, values only
+        not detected: mag =  99; magerr = 1-sigma upper limit assuming zero flux
+        not observed: mag = -99; magerr = 0
+    """
+    zeropoint = zeropoint * u.ABmag
+    flux = flux * zeropoint.to(u.nJy)
+    fluxerr = fluxerr * zeropoint.to(u.nJy)
+
+    nondet = flux < 0  # Non-detection if flux is negative
+    unobs = (fluxerr <= 0) + (fluxerr == np.inf) + (fluxerr == np.nan)  # Unobserved if flux uncertainty is negative or infinity
+
+    mag = flux.to(u.ABmag)
+    magupperlimit = fluxerr.to(u.ABmag) # 1-sigma upper limit if flux=0
+
+    mag = np.where(nondet, 99 * u.ABmag, mag)
+    mag = np.where(unobs, -99 * u.ABmag, mag)
+
+    magerr = 2.5 * np.log10(1 + fluxerr/flux) 
+    magerr = magerr.value * u.ABmag
+
+    magerr = np.where(nondet, magupperlimit, magerr)
+    magerr = np.where(unobs, 0 * u.ABmag, magerr)
+    
+    return mag.value, magerr.value

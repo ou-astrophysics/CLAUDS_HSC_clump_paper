@@ -324,7 +324,7 @@ def main():
 
     # [START FINISHING-UP]
     print('Writing results...')
-    output_file = 'peaks_Zoobot-U+GRIZY_ensemble_CLAUDS+HSC_bands_sigma_{}_cleaned.gzip'.format(sigma)
+    output_file = 'peaks_out_sigma_{}.gzip'.format(sigma)
     df_peaks.to_parquet(PREDICTIONS_FILE_PATH + output_file, compression='gzip')
     # [END FINISHING-UP]
 # [END Main]
