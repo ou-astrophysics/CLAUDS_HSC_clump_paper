@@ -18,14 +18,11 @@ import multiprocessing
 
 import astropy.units as u
 from astropy.io import fits
-from astropy.wcs import WCS
 from astropy.stats import SigmaClip
-from astropy.convolution import convolve_fft
-from astropy.modeling.models import Moffat2D
 
 import photutils
+from photutils.psf import ImagePSF
 from photutils.utils import calc_total_error
-from photutils.psf.matching import create_matching_kernel, SplitCosineBellWindow
 # [END libraries]
 
 
@@ -61,19 +58,6 @@ NUM_WORKERS = multiprocessing.cpu_count()
 # [END initial settings]
 
 
-# [START classes and functions]
-def get_reference_band(u, g, r, i, z, y):
-    d = {
-        'U': u,
-        'G': g,
-        'R': r,
-        'I': i,
-        'Z': z,
-        'Y': y,
-    }
-    return max(d, key=d.get)
-
-
 def load_data():
     """
         Function for loading the necessary dataFrame.
@@ -83,35 +67,39 @@ def load_data():
         Returns: Pandas DataFrame
     """
 
-    # define your data set, here some dataframes saved as parquet-files
-    df_meta = pd.read_parquet(DATA_PATH + 'galaxy_image_meta_information_file.gzip', engine='pyarrow')
+    cols = ['HSCobjid', 'useeing', 'gseeing', 'rseeing', 'iseeing', 'zseeing', 'yseeing']
+    df_galaxies = (pd
+        .read_parquet(DATA_PATH + 'galaxies_HSCfull.gzip', engine='pyarrow')
+        .query('GRIZY_exists==True & U_band_exists==True & PSF_U_band_exist==True & is_data_U==True')
+        .assign(useeing = lambda _df: _df.useeing.where(_df.useeing>0.0, 0.919000))
+        [cols]
+    )
+    
     df_phot = (pd
-        .read_parquet(PREDICTIONS_FILE_PATH + 'predictions_file_name.gzip', engine='pyarrow')
+        .read_parquet(PREDICTIONS_FILE_PATH + 'peaks_Zoobot-U+GRIZY_ensemble_CLAUDS+HSC_bands_sigma_1.0_cleaned.gzip', engine='pyarrow')
         .query('band == "U"')
-        .merge(df_meta, how='inner', on='HSCobjid')
+        .merge(df_galaxies, how='inner', on='HSCobjid')
     )
     return df_phot
 
 
-def get_aperture_correction(aperture_radius: float, psf_fwhm: float) -> float:
+def get_aperture_correction(aperture_radius: float, psf_data: np.ndarray, oversampling_rate: int=1) -> float:
     """
-      Calculates the aperture correction factor for a given aperture and PSF-FWHM.
-      A standard 2D-Moffat function is evaluated over a grid of 10x10px and the 
-      enclosed flux within the given aperture is summed to give a ratio of total
+      Calculates the aperture correction for a given PSF-model image.
+      The image PSF is evaluated over a grid of 20x20px and the enclosed
+      flux within the given aperture is summed to give a ratio of total
       flux and flux within the aperture.
 
       Args:
         aperture_radius : radius of the aperture for which the correction should be calculated
-        psf_fwhm : FWHM of the Moffat-function, e.g. typical seeing
+        psf_data : PSF-model image as numpy array
+        oversampling_rate : oversampling of the PSF-model image
 
       Returns:
         Aperture correction factor
     """
 
     flux = 1.0
-    beta = 2.5
-    alpha = psf_fwhm / (2*np.sqrt(2**(1/beta)-1))
-    amplitude = flux * (beta-1) / (np.pi*alpha**2)
     x_0 = y_0 = 0.0
 
     dx = dy = 0.01
@@ -119,88 +107,63 @@ def get_aperture_correction(aperture_radius: float, psf_fwhm: float) -> float:
     y = np.arange(-10, 10, dy)
 
     yy, xx = np.meshgrid(y, x, sparse=True)
-    moffat_see = Moffat2D().evaluate(xx, yy, amplitude=amplitude, x_0=x_0, y_0=y_0, gamma=alpha, alpha=beta)
+    psf_model = ImagePSF(psf_data, oversampling=oversampling_rate)
+    psf_see = psf_model.evaluate(
+        x=xx, y=yy, 
+        flux=flux, 
+        x_0=x_0, y_0=y_0
+    )
 
     cond_aper = np.sqrt(xx**2 + yy**2) <= aperture_radius
-    flux_aper = np.sum(moffat_see[cond_aper]) * dx * dy
+    flux_aper = np.sum(psf_see[cond_aper]) * dx * dy
 
     aper_adjust = flux/flux_aper
 
-    return aper_adjust
+    return aper_adjust 
 
 
 def run_photometry(df_phot, bands):
     results = []
-    fits_files = {}
-    psf_files = {}
 
-    # define the columns to keep for the final dataframe
-    # depends on input data from load_data()
     cols_to_keep = [
         'HSCobjid', 'band', 'clump_id', 'detection_id', 'labels', 'scores', 
         'is_peak_detection', 'x_peak', 'y_peak', 'x_centroid', 'y_centroid', 'ra_peak', 'dec_peak',
         'ra_centroid', 'dec_centroid', 'peak_value', 'peak_id',
         'peak_detection_id', 'x_peak_normed', 'y_peak_normed',
         'x_centroid_normed', 'y_centroid_normed',
-        # these columns will be added later in the script
-        'aperture_radius_px', 'annulus_min_px', 'annulus_max_px', 'aper_corr'
     ]
     
-    window = SplitCosineBellWindow(alpha=0.35, beta=0.3)
-    
     for objid in df_phot['HSCobjid'].unique():
-        for band in bands:
-            if band=='U':
-                _fits_file = FITS_FILE_PATH + str(objid)[-3:] + '/' + str(objid) + '_CLAUDS-U.fits'
-                _psf_file =  PSF_FILE_PATH  + str(objid)[-3:] + '/' + str(objid) + '_PSF_CLAUDS-U.fits'
-            else:
-                _fits_file = FITS_FILE_PATH + str(objid)[-3:] + '/' + str(objid) + '_HSC-{}_var.fits'.format(band)
-                _psf_file =  PSF_FILE_PATH  + str(objid)[-3:] + '/' + str(objid) + '_PSF_HSC-{}.fits'.format(band)
-            fits_files[band] = fits.open(_fits_file)
-            psf_files[band] = fits.open(_psf_file)
-
-        # get max size of the PSF images, they can vary!
-        psf_sizes = [psf_files[band][0].data.shape for band in bands]
-        psf_x_max = max(psf_sizes, key=itemgetter(0))[0]
-        psf_y_max = max(psf_sizes, key=itemgetter(1))[1]
-        
         _df = df_phot[(df_phot['HSCobjid']==objid)].copy() # keeping the original data
-
         if len(_df) > 0:
-            # get the filterband for which the PSF is the largest to use as reference_band for convolving the FITS
-            reference_band = _df['reference_band'].iloc[0]
-            # and pad the image to the largest size
-            x, y = psf_files[reference_band][0].data.shape
-            x_pad = (psf_x_max - x) // 2
-            y_pad = (psf_y_max - y) // 2
-            reference_psf = np.pad(psf_files[reference_band][0].data, ((x_pad, x_pad), (y_pad, y_pad)), 'edge')
-
-            # using worst seeing for aperture radius
-            aperture_px = _df['reference_psf_fwhm'].iloc[0] / HSC_ARCSEC_PER_PIXEL * FWHM_MULTIPLIER
-            annulus_min_px = _df['reference_psf_fwhm'].iloc[0] / HSC_ARCSEC_PER_PIXEL * FWHM_MULTIPLIER_ANNULUS_MIN
-            annulus_max_px = _df['reference_psf_fwhm'].iloc[0] / HSC_ARCSEC_PER_PIXEL * FWHM_MULTIPLIER_ANNULUS_MAX
-
-            # add aperture and annuli radii to resulting dataFrame
-            _df['aperture_radius_px'] = aperture_px
-            _df['annulus_min_px'] = annulus_min_px
-            _df['annulus_max_px'] = annulus_max_px
-
-            # get the aperture correction
-            aper_corr = get_aperture_correction(aperture_radius=aperture_px, psf_fwhm=_df['reference_psf_fwhm'].iloc[0] / HSC_ARCSEC_PER_PIXEL)
-            _df['aper_corr'] = aper_corr
+            # px-coords for the circular aperture
+            positions = [tuple(r) for r in _df[['x_centroid', 'y_centroid']].to_numpy().tolist()]
 
             # limit to columns to keep for resulting dataFrame
             _df_phot_list = [_df[cols_to_keep].reset_index()]
 
-            # px-coords for the circular aperture
-            positions = [tuple(r) for r in _df[['x_centroid', 'y_centroid']].to_numpy().tolist()]
+            for band in bands:
+                if band=='U':
+                    _fits_file = FITS_FILE_PATH + str(objid)[-3:] + '/' + str(objid) + '_CLAUDS-U.fits'
+                    _psf_file =  PSF_FILE_PATH  + str(objid)[-3:] + '/' + str(objid) + '_PSF_CLAUDS-U.fits'
+                else:
+                    _fits_file = FITS_FILE_PATH + str(objid)[-3:] + '/' + str(objid) + '_HSC-{}_var.fits'.format(band)
+                    _psf_file =  PSF_FILE_PATH  + str(objid)[-3:] + '/' + str(objid) + '_PSF_HSC-{}.fits'.format(band)
+                f_file = fits.open(_fits_file)
+                psf_file = fits.open(_psf_file)
 
-            for i, (band, f_file) in enumerate(fits_files.items()):
+                # using seeing for aperture radius and other settings
+                seeing_px = _df[band.lower()+'seeing'].iloc[0] / HSC_ARCSEC_PER_PIXEL
+                oversampling_rate = 2 if band != 'U' and seeing_px <= 3.0 else 1
+                aperture_px = seeing_px * FWHM_MULTIPLIER
+                annulus_min_px = seeing_px * FWHM_MULTIPLIER_ANNULUS_MIN
+                annulus_max_px = seeing_px * FWHM_MULTIPLIER_ANNULUS_MAX
+
                 # define image files and stuff
                 science_image = f_file[1].data
-                x, y = science_image.shape
-                imwcs = WCS(f_file[1].header)
+                # imwcs = WCS(f_file[1].header)
                 var_image = f_file[3].data
+                psf_image = psf_file[0].data[3:-3,3:-3]
                 
                 # Data RMS uncertainty is combination of background RMS and source Poisson uncertainties
                 # HSC-weight = inverse variance map
@@ -212,24 +175,13 @@ def run_photometry(df_phot, bands):
                     background_rms = np.sqrt(var_image)
                     effective_gain = 3.0
                 error = calc_total_error(data=science_image, bkg_error=background_rms, effective_gain=effective_gain)
-    
-                # convolve fits with new PSF
-                # if reference_band != band:
-                # pad the image to the largest size
-                x, y = psf_files[band][0].data.shape
-                x_pad = (psf_x_max - x) // 2
-                y_pad = (psf_y_max - y) // 2
-                psf = np.pad(psf_files[band][0].data, ((x_pad, x_pad), (y_pad, y_pad)), 'edge')
-                # higher resolution first, then reference
-                kernel = create_matching_kernel(psf, reference_psf, window=window)
-                science_image = convolve_fft(science_image, kernel, boundary='wrap')
                 
                 # doing aperture photometry
                 # masking clumps, all peaks plus adjacent peaks from DAOStarFinder
                 masked_clumps = GalaxyMeasurements.clump_mask(
                     px_x=_df['x_centroid'],
                     px_y=_df['y_centroid'],
-                    radius=aperture_px,
+                    radius=seeing_px,
                     img_size=science_image.shape,
                     # debug=True
                 )
@@ -253,6 +205,8 @@ def run_photometry(df_phot, bands):
                 _phot_table['total_bkg_'+band.lower()] = _bkgstats.median * _aperture.area
                 _phot_table['aperture_sum_bkgsub_'+band.lower()] = _phot_table['aperture_sum_'+band.lower()] - _phot_table['total_bkg_'+band.lower()]
                 # applying aperture correction
+                aper_corr = get_aperture_correction(aperture_radius=aperture_px, psf_data=psf_image, oversampling_rate=oversampling_rate)
+                _phot_table['aper_corr_'+band.lower()] = aper_corr
                 _phot_table['clump_flux_ADU_corr_'+band.lower()] = _phot_table['aperture_sum_bkgsub_'+band.lower()] * aper_corr
                 _phot_table['clump_flux_ADU_err_corr_'+band.lower()] = _phot_table['aperture_sum_err_'+band.lower()] * aper_corr
                 # background stats from annulus
@@ -266,18 +220,17 @@ def run_photometry(df_phot, bands):
                 # converting flux into ABmags
                 _phot_table['clump_flux_ABmag_'+band.lower()] = _phot_table['clump_flux_nJy_'+band.lower()].to(u.ABmag)
                 _phot_table['clump_flux_ABmag_err_'+band.lower()] = (2.5 * np.log10(1 + _phot_table['clump_flux_nJy_err_'+band.lower()]/_phot_table['clump_flux_nJy_'+band.lower()])).value * u.ABmag
-
+                # add aperture and annuli radii to resulting dataFrame
+                _phot_table['aperture_radius_px_'+band.lower()] = aperture_px
+                _phot_table['annulus_min_px_'+band.lower()] = annulus_min_px
+                _phot_table['annulus_max_px_'+band.lower()] = annulus_max_px
                 _df_phot_list.append(_phot_table.to_pandas())
 
+                # close FITS
+                f_file.close()
+                psf_file.close()
+            
             results.append(pd.concat(_df_phot_list, axis=1, ignore_index=False))
-        
-        else:
-            print('--> row skipped')
-        # close FITS
-        for i, (band, f_file) in enumerate(fits_files.items()):
-            f_file.close()
-        for i, (band, f_file) in enumerate(psf_files.items()):
-            f_file.close()
         
     df_result_chunk = pd.concat(results)
     return df_result_chunk
