@@ -27,7 +27,7 @@ from photutils.segmentation import make_2dgaussian_kernel, detect_sources, deble
 from photutils.utils.exceptions import NoDetectionsWarning
 
 from skimage.filters.rank import majority
-from skimage.morphology import square
+from skimage.morphology import footprint_rectangle
 
 
 def merge_clumps(coords, fwhm, close_by_threshold):
@@ -193,7 +193,7 @@ def create_galaxy_mask(science_image, petroR90_asec, pixel_scale):
             segm_detect_step4.remove_border_labels(border_width=border, partial_overlap=False, relabel=True)
         # smooth image
         kernel_size = int(0.1 * science_image.shape[0])
-        final_seg_map = majority(segm_detect_step4.data.astype('uint8'), square(kernel_size))
+        final_seg_map = majority(segm_detect_step4.data.astype('uint8'), footprint_rectangle((kernel_size, kernel_size)))
         segm_detect_step4.data = final_seg_map
 
     # return final_seg_map, segm_detect_step4, segm_deblend_step2_plot, segm_detect_step1_plot, segm_deblend_step2_mask, final_mask
