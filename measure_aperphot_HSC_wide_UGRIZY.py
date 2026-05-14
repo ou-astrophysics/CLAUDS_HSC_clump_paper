@@ -9,6 +9,7 @@ import numpy as np
 import os
 import sys
 import time
+import argparse
 sys.path.append('../shared/')
 import GalaxyMeasurements
 
@@ -66,6 +67,11 @@ def load_data():
         .read_parquet(DATA_PATH + 'galaxies_HSCfull.gzip', engine='pyarrow')
         .query('GRIZY_exists==True & U_band_exists==True & PSF_U_band_exist==True & is_data_U==True')
         .assign(useeing = lambda _df: _df.useeing.where(_df.useeing>0.0, 0.919000))
+        .assign(gseeing = lambda _df: _df.gseeing.where(_df.gseeing>0.0, 0.793401))
+        .assign(rseeing = lambda _df: _df.rseeing.where(_df.rseeing>0.0, 0.760218))
+        .assign(iseeing = lambda _df: _df.iseeing.where(_df.iseeing>0.0, 0.607064))
+        .assign(zseeing = lambda _df: _df.zseeing.where(_df.zseeing>0.0, 0.687697))
+        .assign(yseeing = lambda _df: _df.yseeing.where(_df.yseeing>0.0, 0.694443))
         [cols]
     )
     
@@ -138,10 +144,10 @@ def run_photometry(df_phot, bands, fwhm_multiplier, fwhm_multiplier_annulus_min,
 
             for band in bands:
                 if band=='U':
-                    _fits_file = FITS_FILE_SIMS_PATH + str(objid)[-3:] + '/' + str(objid) + '_CLAUDS-U.fits'
+                    _fits_file = FITS_FILE_PATH + str(objid)[-3:] + '/' + str(objid) + '_CLAUDS-U.fits'
                     _psf_file =  PSF_FILE_PATH  + str(objid)[-3:] + '/' + str(objid) + '_PSF_CLAUDS-U.fits'
                 else:
-                    _fits_file = FITS_FILE_SIMS_PATH + str(objid)[-3:] + '/' + str(objid) + '_HSC-{}_var.fits'.format(band)
+                    _fits_file = FITS_FILE_PATH + str(objid)[-3:] + '/' + str(objid) + '_HSC-{}_var.fits'.format(band)
                     _psf_file =  PSF_FILE_PATH  + str(objid)[-3:] + '/' + str(objid) + '_PSF_HSC-{}.fits'.format(band)
                 f_file = fits.open(_fits_file)
                 psf_file = fits.open(_psf_file)
@@ -291,6 +297,25 @@ def main():
     # [END photometry]
 
     # [START POST-PROCESSING]
+    df_gal_extinction = pd.read_parquet(DATA_PATH + 'HSC_gal_extinction.gzip', engine='pyarrow')
+
+    df_results = (df_results
+        .merge(df_gal_extinction, on='HSCobjid', how='inner')
+        .rename(columns={
+            'clump_flux_ABmag_u': 'clump_flux_ABmag_meas_u',
+            'clump_flux_ABmag_g': 'clump_flux_ABmag_meas_g',
+            'clump_flux_ABmag_r': 'clump_flux_ABmag_meas_r',
+            'clump_flux_ABmag_i': 'clump_flux_ABmag_meas_i',
+            'clump_flux_ABmag_z': 'clump_flux_ABmag_meas_z',
+            'clump_flux_ABmag_y': 'clump_flux_ABmag_meas_y',
+        })
+        .assign(clump_flux_ABmag_u = lambda _df: _df.clump_flux_ABmag_meas_u - _df.a_u)
+        .assign(clump_flux_ABmag_g = lambda _df: _df.clump_flux_ABmag_meas_g - _df.a_g)
+        .assign(clump_flux_ABmag_r = lambda _df: _df.clump_flux_ABmag_meas_r - _df.a_r)
+        .assign(clump_flux_ABmag_i = lambda _df: _df.clump_flux_ABmag_meas_i - _df.a_i)
+        .assign(clump_flux_ABmag_z = lambda _df: _df.clump_flux_ABmag_meas_z - _df.a_z)
+        .assign(clump_flux_ABmag_y = lambda _df: _df.clump_flux_ABmag_meas_y - _df.a_y)
+    )    
     # [END POST-PROCESSING]
 
     # [START FINISHING-UP]

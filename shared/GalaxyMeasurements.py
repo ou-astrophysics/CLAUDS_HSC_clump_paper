@@ -193,6 +193,7 @@ def create_galaxy_mask(science_image, petroR90_asec, pixel_scale):
             segm_detect_step4.remove_border_labels(border_width=border, partial_overlap=False, relabel=True)
         # smooth image
         kernel_size = int(0.1 * science_image.shape[0])
+        # final_seg_map = majority(segm_detect_step4.data.astype('uint8'), square(kernel_size))
         final_seg_map = majority(segm_detect_step4.data.astype('uint8'), footprint_rectangle((kernel_size, kernel_size)))
         segm_detect_step4.data = final_seg_map
 
@@ -521,3 +522,25 @@ def fluxes2mags(flux, fluxerr, zeropoint):
     magerr = np.where(unobs, 0 * u.ABmag, magerr)
     
     return mag.value, magerr.value
+
+
+def moments_to_shape(xx, yy, xy, axis_ratio=False, radian=False, to_pixel=False):
+    """
+        Convert the 2nd moments into elliptical shape: radius, ellipticity, position angle.
+    """
+
+    e1 = (xx - yy) / (xx + yy)
+    e2 = (2.0 * xy / (xx + yy))
+
+    # Get the r50 or determinant radius
+    rad = np.sqrt(xx + yy)
+    rad = rad / 0.168 if to_pixel else rad
+
+    # Ellipticity or axis ratio
+    ell = np.sqrt(e1 ** 2.0 + e2 ** 2.0)
+    ell = 1.0 - ell if axis_ratio else ell
+    # Position angle in degree or radian
+    theta = (-0.5 * np.arctan2(e2, e1))
+    theta = (theta * 180. / np.pi) if not radian else theta
+
+    return rad, ell, theta
