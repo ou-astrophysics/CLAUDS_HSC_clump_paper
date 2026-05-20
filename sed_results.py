@@ -10,7 +10,7 @@ import glob
 import argparse
 from tqdm import tqdm
 import sys
-sys.path.append('/users/5/jpopp/codedir/shared/')
+sys.path.append('./shared/')
 import GalaxyMeasurements
 import prospector_utils
 from prospect.io import read_results as reader
